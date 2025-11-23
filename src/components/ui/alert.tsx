@@ -1,24 +1,13 @@
-import React from "react";
-import clsx from "clsx";
+import * as React from "react"
 
-export const Alert = ({ variant = "default", children }: { variant?: "default" | "destructive"; children: React.ReactNode }) => {
-  return (
-    <div
-      className={clsx(
-        "rounded-md border p-4",
-        variant === "default" && "bg-blue-50 border-blue-300 text-blue-800",
-        variant === "destructive" && "bg-red-50 border-red-300 text-red-800"
-      )}
-    >
-      {children}
-    </div>
-  );
-};
+const Alert = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(({ className, ...props }, ref) => (
+  <div ref={ref} role="alert" className={`relative w-full rounded-lg border px-4 py-3 text-sm [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:text-foreground pl-11 bg-background text-foreground ${className}`} {...props} />
+))
+Alert.displayName = "Alert"
 
-export const AlertTitle = ({ children }: { children: React.ReactNode }) => (
-  <h4 className="font-semibold mb-1">{children}</h4>
-);
+const AlertDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(({ className, ...props }, ref) => (
+  <div ref={ref} className={`text-sm [&_p]:leading-relaxed ${className}`} {...props} />
+))
+AlertDescription.displayName = "AlertDescription"
 
-export const AlertDescription = ({ children }: { children: React.ReactNode }) => (
-  <div className="text-sm text-gray-700">{children}</div>
-);
+export { Alert, AlertDescription }

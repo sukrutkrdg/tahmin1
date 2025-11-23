@@ -13,7 +13,7 @@ export default function Header() {
   const isLoggingIn = loginStatus === 'logging-in';
 
   const handleAuth = async () => {
-    if (isAuthenticated) {
+    if (isAuthentaicated) {
       await clear();
       queryClient.clear();
     } else {
