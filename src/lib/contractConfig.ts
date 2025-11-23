@@ -10,7 +10,7 @@ export const CONTRACT_ADDRESSES = {
     usdt: '0x0000000000000000000000000000000000000000', // Base Mainnet USDT (deploy sonrası güncelle)
   },
   [BASE_TESTNET_CHAIN_ID]: {
-    predictionMarket: '0xBE2a99dA1B0C70b12bB420025b8b6a1fE4383755', // Deploy edilen kontrat
+    predictionMarket: '0x69868918e7Bd1117e90fbf27d0dD92010A13Cc8d', // Deploy edilen kontrat
     usdc: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', // Testnet USDC
     usdt: '0xb20a893fb1ef6d46d97e6dafb0a3d2e0a6af6c3e', // Testnet USDT
   },
