@@ -10,6 +10,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Asset, PredictionDirection, TimeInterval, TokenType } from "@/types/prediction";
 import { useWallet } from '../hooks/useWallet';
 import { CONTRACT_ADDRESSES, BASE_TESTNET_CHAIN_ID } from '../lib/contractConfig';
+import { getEthereumProvider } from '@/lib/utils'; // GÜVENLİ PROVIDER IMPORTU
 import { toast } from 'sonner';
 import { ArrowUp, ArrowDown, Loader2 } from 'lucide-react';
 
@@ -56,7 +57,11 @@ export default function PredictionForm() {
     setIsApproving(true);
 
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
+      // --- GÜVENLİ PROVIDER SEÇİMİ (Çakışmayı Önler) ---
+      const ethereum = getEthereumProvider();
+      if (!ethereum) throw new Error("Cüzdan bulunamadı. Lütfen MetaMask yükleyin.");
+
+      const provider = new ethers.BrowserProvider(ethereum);
       const signer = await provider.getSigner();
       const network = await provider.getNetwork();
       const chainId = Number(network.chainId);
@@ -74,13 +79,11 @@ export default function PredictionForm() {
       // Token kontratını bağla
       const tokenContract = new Contract(tokenAddress, ERC20_ABI, signer);
 
-      // Miktarı hesapla (6 decimal varsayımıyla, USDC/USDT için genelde 6'dır)
-      // Ancak production'da decimals() çağrısı yapmak daha güvenlidir.
+      // Miktarı hesapla (6 decimal varsayımıyla)
       const decimals = 6; 
       const betAmountBigInt = ethers.parseUnits(amount, decimals);
       
-      // Threshold'u da scale edelim (Backend 2 decimal bekliyorsa x100)
-      // Ekranda $45000.50 girildiyse -> 4500050 olarak gönder
+      // Threshold'u da scale edelim (x100)
       const thresholdBigInt = BigInt(Math.floor(Number(threshold) * 100));
 
       // 1. ADIM: Allowance Kontrolü
@@ -98,6 +101,8 @@ export default function PredictionForm() {
 
       // 2. ADIM: Tahmin Oluşturma
       toast.info("Cüzdan onayı bekleniyor...");
+      
+      // Hook içindeki fonksiyonu çağırırken parametreleri gönderiyoruz
       await createPrediction.mutateAsync({
         asset,
         threshold: thresholdBigInt,

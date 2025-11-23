@@ -2,8 +2,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Asset, PredictionDirection, TimeInterval, TokenType } from "@/types/prediction";
 import { ethers } from "ethers";
 import { CONTRACT_ADDRESSES, BASE_TESTNET_CHAIN_ID } from "@/lib/contractConfig";
+import { getEthereumProvider } from "@/lib/utils";
 
-// Interface güncellemeleri
 export interface UserProfile {
   name: string;
   totalPoints: number;
@@ -19,13 +19,13 @@ export interface Prediction {
   direction: PredictionDirection;
   interval: TimeInterval;
   tokenType: TokenType;
-  amount: bigint; // number yerine bigint olmalı
-  threshold: bigint; // number yerine bigint olmalı
+  amount: bigint; 
+  threshold: bigint; 
   timestamp?: bigint;
   result?: any;
 }
 
-// --- ENUM Dönüştürücüler ---
+// --- ENUM DÖNÜŞTÜRÜCÜLERİ ---
 const getAssetEnum = (asset: Asset): number => {
   if (asset === 'ETH') return 0;
   if (asset === 'BTC') return 1;
@@ -34,23 +34,25 @@ const getAssetEnum = (asset: Asset): number => {
 };
 
 const getDirectionEnum = (dir: PredictionDirection): number => {
-  return dir === 'up' ? 0 : 1; // 0: ABOVE, 1: BELOW
+  return dir === 'up' ? 0 : 1; 
 };
 
 const getIntervalEnum = (interval: TimeInterval): number => {
-  return interval === '24h' ? 1 : 0; // 0: 1H, 1: 24H
+  return interval === '24h' ? 1 : 0; 
 };
 
 const getTokenEnum = (token: TokenType): number => {
-  return token === 'usdt' ? 1 : 0; // 0: USDC, 1: USDT
+  return token === 'usdt' ? 1 : 0; 
 };
 
+// ABI
 const MARKET_ABI = [
   "function createPrediction(uint8 _asset, uint256 _threshold, uint8 _direction, uint8 _interval, uint8 _tokenType, uint256 _amount) external returns (uint256)"
 ];
 
-// --- HOOKS ---
+// --- HOOKS (TAM LİSTE) ---
 
+// 1. Tahmin Oluşturma (Ana Fonksiyon)
 export function useCreatePrediction() {
   const queryClient = useQueryClient();
 
@@ -58,27 +60,22 @@ export function useCreatePrediction() {
     mutationFn: async (prediction: Prediction) => {
       console.log("🚀 Tahmin süreci başladı...");
 
-      if (!window.ethereum) throw new Error("Cüzdan bulunamadı!");
+      const ethereum = getEthereumProvider();
+      if (!ethereum) throw new Error("Cüzdan bulunamadı!");
 
-      const provider = new ethers.BrowserProvider(window.ethereum);
+      const provider = new ethers.BrowserProvider(ethereum);
       const signer = await provider.getSigner();
       const network = await provider.getNetwork();
       const chainId = Number(network.chainId);
 
-      console.log(`🔗 Ağ ID: ${chainId}`);
-
-      // Adresleri al
       const addresses = CONTRACT_ADDRESSES[chainId as keyof typeof CONTRACT_ADDRESSES] || CONTRACT_ADDRESSES[BASE_TESTNET_CHAIN_ID];
       
       if (!addresses || !addresses.predictionMarket) {
-        throw new Error("Kontrat adresi yapılandırılamadı.");
+        throw new Error("Kontrat adresi bulunamadı!");
       }
-
-      console.log(`📝 Kontrat Adresi: ${addresses.predictionMarket}`);
 
       const contract = new ethers.Contract(addresses.predictionMarket, MARKET_ABI, signer);
 
-      // Parametreleri hazırla
       const params = {
         asset: getAssetEnum(prediction.asset),
         threshold: prediction.threshold,
@@ -88,9 +85,8 @@ export function useCreatePrediction() {
         amount: prediction.amount
       };
 
-      console.log("📦 Gönderilen Parametreler:", params);
+      console.log("📦 Parametreler:", params);
 
-      // İşlemi gönder
       const tx = await contract.createPrediction(
         params.asset,
         params.threshold,
@@ -106,24 +102,97 @@ export function useCreatePrediction() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["activePredictions"] });
-      console.log("🎉 Tahmin başarıyla oluşturuldu!");
+      queryClient.invalidateQueries({ queryKey: ["predictionHistory"] });
+      queryClient.invalidateQueries({ queryKey: ["callerBalance"] });
     },
     onError: (error: any) => {
-      console.error("❌ Tahmin hatası:", error);
+      console.error("❌ Hata:", error);
     }
   });
 }
 
-// Diğer hooklar (Placeholder veya Mock)
+// 2. Profil Getir (Placeholder)
 export function useGetCallerUserProfile() {
-  return useQuery({ queryKey: ["profile"], queryFn: async () => ({ name: "Kullanıcı", totalPoints: 0 }) });
+  return useQuery<UserProfile>({
+    queryKey: ["currentUserProfile"],
+    queryFn: async () => ({ name: "Demo Kullanıcı", totalPoints: 1250 }),
+  });
 }
-export function useSaveCallerUserProfile() { return useMutation({ mutationFn: async () => {} }); }
-export function useGetCallerBalance() { 
-  return useQuery({ queryKey: ["balance"], queryFn: async () => ({ usdc: 1000, usdt: 1000 }) }); 
+
+// 3. Profil Kaydet (Placeholder)
+export function useSaveCallerUserProfile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (profile: { name: string }) => {
+      console.log("Profil kaydedildi:", profile);
+      return profile;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["currentUserProfile"] });
+    },
+  });
 }
-export function useGetActivePredictions() { return useQuery({ queryKey: ["active"], queryFn: async () => [] }); }
-export function useGetPredictionHistory() { return useQuery({ queryKey: ["history"], queryFn: async () => [] }); }
-export function useGetLeaderboard() { return useQuery({ queryKey: ["leaderboard"], queryFn: async () => [] }); }
-export function useDepositFunds() { return useMutation({ mutationFn: async () => {} }); }
-export function useWithdrawFunds() { return useMutation({ mutationFn: async () => {} }); }
+
+// 4. Bakiye Getir (Placeholder)
+export function useGetCallerBalance() {
+  return useQuery<UserBalance>({
+    queryKey: ["callerBalance"],
+    queryFn: async () => ({ usdc: 1500, usdt: 1200 }),
+    refetchInterval: 5000,
+  });
+}
+
+// 5. Para Yatır (Placeholder)
+export function useDepositFunds() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ tokenType, amount }: { tokenType: TokenType; amount: bigint }) => {
+      console.log(`${amount} ${tokenType.toUpperCase()} yatırıldı`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["callerBalance"] });
+    },
+  });
+}
+
+// 6. Para Çek (Placeholder)
+export function useWithdrawFunds() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ tokenType, amount }: { tokenType: TokenType; amount: bigint }) => {
+      console.log(`${amount} ${tokenType.toUpperCase()} çekildi`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["callerBalance"] });
+    },
+  });
+}
+
+// 7. Aktif Tahminler (Placeholder)
+export function useGetActivePredictions() {
+  return useQuery<Prediction[]>({
+    queryKey: ["activePredictions"],
+    queryFn: async () => [],
+  });
+}
+
+// 8. Tahmin Geçmişi (Placeholder)
+export function useGetPredictionHistory() {
+  return useQuery<Prediction[]>({
+    queryKey: ["predictionHistory"],
+    queryFn: async () => [],
+  });
+}
+
+// 9. Liderlik Tablosu (Placeholder)
+export function useGetLeaderboard() {
+  return useQuery<Array<{ name: string; points: number }>>({
+    queryKey: ["leaderboard"],
+    queryFn: async () => [
+      { name: "Ali", points: 1200 },
+      { name: "Ayşe", points: 950 },
+      { name: "Mehmet", points: 870 },
+    ],
+    refetchInterval: 30000,
+  });
+}
