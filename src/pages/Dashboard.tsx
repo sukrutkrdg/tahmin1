@@ -1,16 +1,16 @@
+import { PriceCards } from '../components/PriceCards'; // DÜZELTİLDİ
+import PredictionForm from '../components/PredictionForm'; // Bu "export default" olduğu için { } gerekmez
+import { PredictionHistory } from '../components/PredictionHistory'; // DÜZELTİLDİ
+import { Leaderboard } from '../components/Leaderboard'; // DÜZELTİLDİ
+import { UserStats } from '../components/UserStats'; // DÜZELTİLDİ
+import { BalanceManager } from '../components/BalanceManager'; // DÜZELTİLDİ
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import PriceCards from '../components/PriceCards';
-import PredictionForm from '../components/PredictionForm';
-import PredictionHistory from '../components/PredictionHistory';
-import Leaderboard from '../components/Leaderboard';
-import UserStats from '../components/UserStats';
-import BalanceManager from '../components/BalanceManager';
 
 export default function Dashboard() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-8">
-        <h2 className="text-3xl font-bold text-foreground mb-2">Dashboard</h2>
+        <h2 className="text-3xl font-bold text-foreground mb-2">Base Tahmin Paneli</h2>
         <p className="text-muted-foreground">Kripto fiyatlarını takip edin ve tahminlerinizi yapın</p>
       </div>
 

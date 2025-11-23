@@ -1,6 +1,6 @@
 import * as React from "react";
+import { cn } from "@/lib/utils"; // Eğer utils yoksa class birleştirme için basit string kullanabilirsin
 
-// Basit bir Context oluşturup aktif sekmeyi yönetelim
 const TabsContext = React.createContext<{ activeTab: string; setActiveTab: (v: string) => void } | null>(null);
 
 export const Tabs = ({ defaultValue, children, className }: any) => {
