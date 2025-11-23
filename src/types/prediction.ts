@@ -1,5 +1,21 @@
+import { TokenType } from './token';
 
-export type Asset = 'BTC' | 'ETH' | 'XRP';
-export type PredictionDirection = 'up' | 'down';
-export type TimeInterval = '1h' | '4h' | '24h';
-export type TokenType = 'usdc' | 'usdt';
+// Diğer dosyalarda 'TokenType' buradan çağırıldığı için dışa aktarıyoruz
+export { TokenType };
+
+export enum Asset {
+  btc = 'BTC',
+  eth = 'ETH',
+  xrp = 'XRP',
+}
+
+export enum PredictionDirection {
+  above = 'up',
+  below = 'down',
+}
+
+export enum TimeInterval {
+  oneHour = '1h',
+  fourHours = '4h',
+  twentyFourHours = '24h',
+}

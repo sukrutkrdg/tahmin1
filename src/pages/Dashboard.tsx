@@ -1,10 +1,11 @@
-import { PriceCards } from '../components/PriceCards'; // DÜZELTİLDİ
-import PredictionForm from '../components/PredictionForm'; // Bu "export default" olduğu için { } gerekmez
-import { PredictionHistory } from '../components/PredictionHistory'; // DÜZELTİLDİ
-import { Leaderboard } from '../components/Leaderboard'; // DÜZELTİLDİ
-import { UserStats } from '../components/UserStats'; // DÜZELTİLDİ
-import { BalanceManager } from '../components/BalanceManager'; // DÜZELTİLDİ
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+// DÜZELTME: Aşağıdaki bileşenler "export default" olduğu için süslü parantez { } KULLANILMAMALI
+import PriceCards from '../components/PriceCards'; 
+import PredictionForm from '../components/PredictionForm';
+import PredictionHistory from '../components/PredictionHistory';
+import Leaderboard from '../components/Leaderboard';
+import UserStats from '../components/UserStats';
+import BalanceManager from '../components/BalanceManager';
 
 export default function Dashboard() {
   return (

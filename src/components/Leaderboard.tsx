@@ -1,4 +1,4 @@
-import { useGetLeaderboard, useGetUserProfile } from '../hooks/useQueries';
+import { useGetLeaderboard, useGetCallerUserProfile } from '../hooks/useQueries';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Trophy, Medal } from 'lucide-react';
