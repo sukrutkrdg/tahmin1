@@ -3,6 +3,7 @@ import { Asset, PredictionDirection, TimeInterval, TokenType } from "@/types/pre
 import { ethers } from "ethers";
 import { CONTRACT_ADDRESSES, BASE_TESTNET_CHAIN_ID } from "@/lib/contractConfig";
 
+// Interface güncellemeleri
 export interface UserProfile {
   name: string;
   totalPoints: number;
@@ -18,176 +19,111 @@ export interface Prediction {
   direction: PredictionDirection;
   interval: TimeInterval;
   tokenType: TokenType;
-  amount: bigint; 
-  threshold: bigint; 
+  amount: bigint; // number yerine bigint olmalı
+  threshold: bigint; // number yerine bigint olmalı
   timestamp?: bigint;
   result?: any;
 }
 
-// --- ENUM DÖNÜŞTÜRÜCÜLERİ (Frontend -> Solidity) ---
-
-// Solidity: enum Asset { ETH, BTC, XRP }
+// --- ENUM Dönüştürücüler ---
 const getAssetEnum = (asset: Asset): number => {
-  // Asset.btc değeri "BTC" stringidir (types/prediction.ts dosyasından)
   if (asset === 'ETH') return 0;
   if (asset === 'BTC') return 1;
   if (asset === 'XRP') return 2;
   return 0;
 };
 
-// Solidity: enum Direction { ABOVE, BELOW }
 const getDirectionEnum = (dir: PredictionDirection): number => {
-  // 'up' -> ABOVE (0), 'down' -> BELOW (1)
-  return dir === 'up' ? 0 : 1; 
+  return dir === 'up' ? 0 : 1; // 0: ABOVE, 1: BELOW
 };
 
-// Solidity: enum TimeInterval { ONE_HOUR, TWENTY_FOUR_HOURS }
 const getIntervalEnum = (interval: TimeInterval): number => {
-  // '1h' -> 0, '24h' -> 1
-  return interval === '24h' ? 1 : 0; 
+  return interval === '24h' ? 1 : 0; // 0: 1H, 1: 24H
 };
 
-// Solidity: enum TokenType { USDC, USDT }
 const getTokenEnum = (token: TokenType): number => {
-  // 'usdc' -> 0, 'usdt' -> 1
-  return token === 'usdt' ? 1 : 0; 
+  return token === 'usdt' ? 1 : 0; // 0: USDC, 1: USDT
 };
 
-// Sadece createPrediction fonksiyonu için gerekli ABI
 const MARKET_ABI = [
   "function createPrediction(uint8 _asset, uint256 _threshold, uint8 _direction, uint8 _interval, uint8 _tokenType, uint256 _amount) external returns (uint256)"
 ];
 
 // --- HOOKS ---
 
-export function useGetCallerUserProfile() {
-  return useQuery<UserProfile>({
-    queryKey: ["currentUserProfile"],
-    queryFn: async () => ({ name: "Demo Kullanıcı", totalPoints: 0 }),
-  });
-}
-
-export function useSaveCallerUserProfile() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (profile: { name: string }) => {
-      console.log("Profil kaydedildi:", profile);
-      return profile;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["currentUserProfile"] });
-    },
-  });
-}
-
-// Bakiye şimdilik statik, ileride ERC20 balanceOf ile çekilebilir
-export function useGetCallerBalance() {
-  return useQuery<UserBalance>({
-    queryKey: ["callerBalance"],
-    queryFn: async () => ({ usdc: 1500, usdt: 1200 }),
-    refetchInterval: 5000,
-  });
-}
-
-// --- ANA İŞLEM: TAHMİN OLUŞTURMA ---
 export function useCreatePrediction() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (prediction: Prediction) => {
-      // 1. Cüzdan Kontrolü
+      console.log("🚀 Tahmin süreci başladı...");
+
       if (!window.ethereum) throw new Error("Cüzdan bulunamadı!");
 
-      // 2. Bağlantı Kurulumu
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
-      
-      // 3. Ağ ve Adres Kontrolü
       const network = await provider.getNetwork();
       const chainId = Number(network.chainId);
-      
-      // Config dosyasından adresleri al
-      // Eğer o anki ağ configde yoksa varsayılan olarak Testnet adresini al
+
+      console.log(`🔗 Ağ ID: ${chainId}`);
+
+      // Adresleri al
       const addresses = CONTRACT_ADDRESSES[chainId as keyof typeof CONTRACT_ADDRESSES] || CONTRACT_ADDRESSES[BASE_TESTNET_CHAIN_ID];
       
       if (!addresses || !addresses.predictionMarket) {
-        throw new Error("Kontrat adresi bulunamadı! Lütfen Base Sepolia ağına geçin.");
+        throw new Error("Kontrat adresi yapılandırılamadı.");
       }
 
-      // 4. Kontratı Hazırla
+      console.log(`📝 Kontrat Adresi: ${addresses.predictionMarket}`);
+
       const contract = new ethers.Contract(addresses.predictionMarket, MARKET_ABI, signer);
 
-      // 5. Değerleri Solidity Formatına Çevir
-      const assetId = getAssetEnum(prediction.asset);
-      const directionId = getDirectionEnum(prediction.direction);
-      const intervalId = getIntervalEnum(prediction.interval);
-      const tokenId = getTokenEnum(prediction.tokenType);
+      // Parametreleri hazırla
+      const params = {
+        asset: getAssetEnum(prediction.asset),
+        threshold: prediction.threshold,
+        direction: getDirectionEnum(prediction.direction),
+        interval: getIntervalEnum(prediction.interval),
+        tokenType: getTokenEnum(prediction.tokenType),
+        amount: prediction.amount
+      };
 
-      console.log("Kontrata Gönderilen Değerler:", {
-        assetId,
-        threshold: prediction.threshold.toString(),
-        directionId,
-        intervalId,
-        tokenId,
-        amount: prediction.amount.toString()
-      });
+      console.log("📦 Gönderilen Parametreler:", params);
 
-      // 6. İşlemi Gönder (Burada Cüzdan Açılacak)
+      // İşlemi gönder
       const tx = await contract.createPrediction(
-        assetId,
-        prediction.threshold,
-        directionId,
-        intervalId,
-        tokenId,
-        prediction.amount
+        params.asset,
+        params.threshold,
+        params.direction,
+        params.interval,
+        params.tokenType,
+        params.amount
       );
 
-      console.log("İşlem Hash:", tx.hash);
-      
-      // 7. İşlemin Onaylanmasını Bekle
+      console.log("✅ İşlem Hash:", tx.hash);
       const receipt = await tx.wait();
       return receipt;
     },
     onSuccess: () => {
-      // Başarılı olursa listeleri güncelle
       queryClient.invalidateQueries({ queryKey: ["activePredictions"] });
-      queryClient.invalidateQueries({ queryKey: ["predictionHistory"] });
-      console.log("Tahmin başarıyla oluşturuldu!");
+      console.log("🎉 Tahmin başarıyla oluşturuldu!");
     },
     onError: (error: any) => {
-      console.error("Tahmin oluşturma hatası:", error);
-      // Hata detayını yakalamak için
-      if (error.reason) console.error("Hata Sebebi:", error.reason);
+      console.error("❌ Tahmin hatası:", error);
     }
   });
 }
 
-export function useGetActivePredictions() {
-  return useQuery<Prediction[]>({
-    queryKey: ["activePredictions"],
-    queryFn: async () => [],
-  });
+// Diğer hooklar (Placeholder veya Mock)
+export function useGetCallerUserProfile() {
+  return useQuery({ queryKey: ["profile"], queryFn: async () => ({ name: "Kullanıcı", totalPoints: 0 }) });
 }
-
-export function useGetPredictionHistory() {
-  return useQuery<Prediction[]>({
-    queryKey: ["predictionHistory"],
-    queryFn: async () => [],
-  });
+export function useSaveCallerUserProfile() { return useMutation({ mutationFn: async () => {} }); }
+export function useGetCallerBalance() { 
+  return useQuery({ queryKey: ["balance"], queryFn: async () => ({ usdc: 1000, usdt: 1000 }) }); 
 }
-
-export function useGetLeaderboard() {
-  return useQuery<Array<{ name: string; points: number }>>({
-    queryKey: ["leaderboard"],
-    queryFn: async () => [
-      { name: "Ali", points: 1200 },
-      { name: "Ayşe", points: 950 },
-      { name: "Mehmet", points: 870 },
-    ],
-    refetchInterval: 30000,
-  });
-}
-
-// Şimdilik boş fonksiyonlar
+export function useGetActivePredictions() { return useQuery({ queryKey: ["active"], queryFn: async () => [] }); }
+export function useGetPredictionHistory() { return useQuery({ queryKey: ["history"], queryFn: async () => [] }); }
+export function useGetLeaderboard() { return useQuery({ queryKey: ["leaderboard"], queryFn: async () => [] }); }
 export function useDepositFunds() { return useMutation({ mutationFn: async () => {} }); }
 export function useWithdrawFunds() { return useMutation({ mutationFn: async () => {} }); }

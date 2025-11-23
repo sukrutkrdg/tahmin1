@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ethers, Contract } from 'ethers'; // ethers importu düzeltildi
+import { ethers, Contract } from 'ethers';
 import { useCreatePrediction, useGetCallerBalance } from '../hooks/useQueries';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,13 +8,12 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Asset, PredictionDirection, TimeInterval, TokenType } from "@/types/prediction";
-import { useWallet } from '../hooks/useWallet'; // Wallet hook eklendi
-import { CONTRACT_ADDRESSES, BASE_TESTNET_CHAIN_ID } from '../lib/contractConfig'; // Config import edildi
-
+import { useWallet } from '../hooks/useWallet';
+import { CONTRACT_ADDRESSES, BASE_TESTNET_CHAIN_ID } from '../lib/contractConfig';
 import { toast } from 'sonner';
-import { ArrowUp, ArrowDown } from 'lucide-react';
+import { ArrowUp, ArrowDown, Loader2 } from 'lucide-react';
 
-// Minimal ERC20 ABI (Sadece approve ve allowance için gerekli)
+// Standart ERC20 ABI
 const ERC20_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
   "function allowance(address owner, address spender) view returns (uint256)",
@@ -22,121 +21,127 @@ const ERC20_ABI = [
 ];
 
 export default function PredictionForm() {
+  // Varsayılan değerler
   const [asset, setAsset] = useState<Asset>(Asset.btc);
   const [threshold, setThreshold] = useState('');
   const [direction, setDirection] = useState<PredictionDirection>(PredictionDirection.above);
   const [interval, setInterval] = useState<TimeInterval>(TimeInterval.oneHour);
   const [tokenType, setTokenType] = useState<TokenType>(TokenType.usdc);
   const [amount, setAmount] = useState('');
-  const [isApproving, setIsApproving] = useState(false); // Buton loading durumu için
+  
+  const [isApproving, setIsApproving] = useState(false); // Loading state
 
   const createPrediction = useCreatePrediction();
   const { data: balance } = useGetCallerBalance();
-  const walletState = useWallet(); // Cüzdan bilgisini al
+  const walletState = useWallet();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("🟢 Butona basıldı. İşlem başlıyor...");
 
+    // Validasyonlar
     if (!walletState.isConnected || !walletState.address) {
       toast.error('Lütfen önce cüzdanınızı bağlayın');
       return;
     }
-
-    if (!threshold || isNaN(Number(threshold)) || Number(threshold) <= 0) {
-      toast.error('Lütfen geçerli bir eşik değeri girin');
+    if (!threshold || Number(threshold) <= 0) {
+      toast.error('Geçerli bir eşik değeri girin');
+      return;
+    }
+    if (!amount || Number(amount) <= 0) {
+      toast.error('Geçerli bir bahis miktarı girin');
       return;
     }
 
-    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-      toast.error('Lütfen geçerli bir bahis miktarı girin');
-      return;
-    }
-
-    setIsApproving(true); // İşlem başladı
+    setIsApproving(true);
 
     try {
-      // 1. Adresleri Belirle (Base Sepolia için hardcoded veya configden)
-      const chainId = walletState.chainId || BASE_TESTNET_CHAIN_ID;
-      
-      // Eğer configde o chain yoksa hata vermesin diye güvenli erişim
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const network = await provider.getNetwork();
+      const chainId = Number(network.chainId);
+
+      // Config'den adresleri çek
       const addresses = CONTRACT_ADDRESSES[chainId as keyof typeof CONTRACT_ADDRESSES] || CONTRACT_ADDRESSES[BASE_TESTNET_CHAIN_ID];
       
+      // Token adresini belirle
       const tokenAddress = tokenType === TokenType.usdc ? addresses.usdc : addresses.usdt;
       const predictionMarketAddress = addresses.predictionMarket;
 
-      // 2. Ethers Provider Kurulumu
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
+      console.log(`🔍 Token: ${tokenType}, Adres: ${tokenAddress}`);
+      console.log(`🏭 Market Adresi: ${predictionMarketAddress}`);
+
+      // Token kontratını bağla
       const tokenContract = new Contract(tokenAddress, ERC20_ABI, signer);
 
-      // 3. Miktarı Ayarla (6 Decimal varsayımıyla)
-      // Not: USDC ve USDT genelde 6 decimaldir. Garanti olsun istersen contracttan çekebilirsin.
+      // Miktarı hesapla (6 decimal varsayımıyla, USDC/USDT için genelde 6'dır)
+      // Ancak production'da decimals() çağrısı yapmak daha güvenlidir.
       const decimals = 6; 
-      const betAmountRaw = ethers.parseUnits(amount, decimals);
-
-      // 4. Allowance (İzin) Kontrolü
-      console.log("Allowance kontrol ediliyor...");
-      const currentAllowance = await tokenContract.allowance(walletState.address, predictionMarketAddress);
+      const betAmountBigInt = ethers.parseUnits(amount, decimals);
       
-      if (currentAllowance < betAmountRaw) {
-          toast.info("Lütfen cüzdanınızdan harcama iznini (Approve) onaylayın...");
-          const tx = await tokenContract.approve(predictionMarketAddress, betAmountRaw);
-          console.log("Approve gönderildi, bekleniyor...");
-          await tx.wait(); // Blokzincire yazılmasını bekle
-          toast.success("Onay başarılı! Şimdi bahis oluşturuluyor...");
+      // Threshold'u da scale edelim (Backend 2 decimal bekliyorsa x100)
+      // Ekranda $45000.50 girildiyse -> 4500050 olarak gönder
+      const thresholdBigInt = BigInt(Math.floor(Number(threshold) * 100));
+
+      // 1. ADIM: Allowance Kontrolü
+      console.log("Checking allowance...");
+      const currentAllowance = await tokenContract.allowance(walletState.address, predictionMarketAddress);
+      console.log(`Mevcut İzin: ${currentAllowance}, Gerekli: ${betAmountBigInt}`);
+
+      if (currentAllowance < betAmountBigInt) {
+        toast.info("Harcama izni (Approve) bekleniyor...");
+        const tx = await tokenContract.approve(predictionMarketAddress, betAmountBigInt);
+        console.log("Approve tx gönderildi:", tx.hash);
+        await tx.wait();
+        toast.success("Onay verildi! Şimdi tahmin oluşturuluyor...");
       }
 
-      // 5. Tahmini Oluştur
+      // 2. ADIM: Tahmin Oluşturma
+      toast.info("Cüzdan onayı bekleniyor...");
       await createPrediction.mutateAsync({
         asset,
-        threshold: BigInt(Math.floor(Number(threshold) * 100)), // Kuruş hassasiyeti için x100 (backend ile uyumlu olmalı)
+        threshold: thresholdBigInt,
         direction,
         interval,
-        // timestamp: BigInt(Date.now()), // Bunu frontendde değil kontratta `block.timestamp` ile yapmak daha güvenli, ama hook istiyorsa kalsın
-        amount: Number(betAmountRaw), // Hook number bekliyorsa dönüşüm yapın, BigInt bekliyorsa betAmountRaw kullanın
+        amount: betAmountBigInt,
         tokenType,
       });
 
-      toast.success('Tahmin başarıyla oluşturuldu!');
+      toast.success('Tahmin başarıyla oluşturuldu! 🚀');
       setThreshold('');
       setAmount('');
 
     } catch (error: any) {
-      console.error("İşlem Hatası:", error);
-      const errorMessage = error?.reason || error?.message || 'İşlem sırasında hata oluştu';
-      
-      // Kullanıcı reject ettiyse
-      if (errorMessage.includes("rejected")) {
-        toast.error("İşlem iptal edildi.");
+      console.error("🚨 Hata oluştu:", error);
+      // Kullanıcı reddettiyse
+      if (error.code === 'ACTION_REJECTED' || (error.info && error.info.error && error.info.error.code === 4001)) {
+        toast.error("İşlem kullanıcı tarafından reddedildi.");
       } else {
-        toast.error("Hata: " + errorMessage);
+        toast.error(`Hata: ${error.reason || error.message || "Bilinmeyen hata"}`);
       }
     } finally {
       setIsApproving(false);
     }
   };
 
+  // Bakiye gösterimi
   const availableBalance = balance 
     ? Number(tokenType === TokenType.usdc ? balance.usdc : balance.usdt)
     : 0;
 
   return (
-    <Card>
+    <Card className="glass-card">
       <CardHeader>
         <CardTitle>Yeni Tahmin Oluştur</CardTitle>
-        <CardDescription>
-          Bir kripto varlık seçin ve fiyat tahmininizi yapın
-        </CardDescription>
+        <CardDescription>Seçtiğiniz varlığın fiyat hareketini tahmin edin</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Varlık Seçimi */}
           <div className="space-y-2">
-            <Label htmlFor="asset">Kripto Varlık</Label>
-            <Select value={asset} onValueChange={(value) => setAsset(value as Asset)}>
-              <SelectTrigger id="asset">
-                <SelectValue />
-              </SelectTrigger>
+            <Label>Kripto Varlık</Label>
+            <Select value={asset} onValueChange={(v) => setAsset(v as Asset)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={Asset.btc}>Bitcoin (BTC)</SelectItem>
                 <SelectItem value={Asset.eth}>Ethereum (ETH)</SelectItem>
@@ -145,121 +150,78 @@ export default function PredictionForm() {
             </Select>
           </div>
 
-          {/* Eşik Fiyat */}
-          <div className="space-y-2">
-            <Label htmlFor="threshold">Eşik Fiyat ($)</Label>
-            <Input
-              id="threshold"
-              type="number"
-              step="0.01"
-              placeholder="Örn: 45000"
-              value={threshold}
-              onChange={(e) => setThreshold(e.target.value)}
-            />
-          </div>
-
-          {/* Yön Seçimi */}
-          <div className="space-y-2">
-            <Label>Tahmin Yönü</Label>
-            <RadioGroup value={direction} onValueChange={(value) => setDirection(value as PredictionDirection)}>
-              <div className="grid grid-cols-2 gap-4">
-                <label
-                  htmlFor="above"
-                  className={`flex cursor-pointer items-center gap-3 rounded-lg border-2 p-4 transition-colors ${
-                    direction === PredictionDirection.above
-                      ? 'border-success bg-success/10'
-                      : 'border-border hover:border-success/50'
-                  }`}
-                >
-                  <RadioGroupItem value={PredictionDirection.above} id="above" />
-                  <div className="flex items-center gap-2">
-                    <ArrowUp className="h-5 w-5 text-success" />
-                    <span className="font-medium">Üstünde</span>
-                  </div>
-                </label>
-
-                <label
-                  htmlFor="below"
-                  className={`flex cursor-pointer items-center gap-3 rounded-lg border-2 p-4 transition-colors ${
-                    direction === PredictionDirection.below
-                      ? 'border-destructive bg-destructive/10'
-                      : 'border-border hover:border-destructive/50'
-                  }`}
-                >
-                  <RadioGroupItem value={PredictionDirection.below} id="below" />
-                  <div className="flex items-center gap-2">
-                    <ArrowDown className="h-5 w-5 text-destructive" />
-                    <span className="font-medium">Altında</span>
-                  </div>
-                </label>
-              </div>
-            </RadioGroup>
-          </div>
-
-          {/* Zaman Aralığı */}
-          <div className="space-y-2">
-            <Label htmlFor="interval">Zaman Aralığı</Label>
-            <Select value={interval} onValueChange={(value) => setInterval(value as TimeInterval)}>
-              <SelectTrigger id="interval">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={TimeInterval.oneHour}>1 Saat</SelectItem>
-                <SelectItem value={TimeInterval.twentyFourHours}>24 Saat</SelectItem>
-              </SelectContent>
-            </Select>
+          {/* Fiyat ve Yön */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Eşik Fiyat ($)</Label>
+              <Input 
+                type="number" 
+                placeholder="45000.00" 
+                value={threshold}
+                onChange={(e) => setThreshold(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Yön</Label>
+              <Select value={direction} onValueChange={(v) => setDirection(v as PredictionDirection)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={PredictionDirection.above}>
+                    <div className="flex items-center gap-2"><ArrowUp className="h-4 w-4 text-green-500"/> Yükselir (Above)</div>
+                  </SelectItem>
+                  <SelectItem value={PredictionDirection.below}>
+                    <div className="flex items-center gap-2"><ArrowDown className="h-4 w-4 text-red-500"/> Düşer (Below)</div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Token ve Miktar */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="tokenType">Token</Label>
-              <Select value={tokenType} onValueChange={(value) => setTokenType(value as TokenType)}>
-                <SelectTrigger id="tokenType">
-                  <SelectValue />
-                </SelectTrigger>
+              <Label>Token</Label>
+              <Select value={tokenType} onValueChange={(v) => setTokenType(v as TokenType)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={TokenType.usdc}>
-                    <div className="flex items-center gap-2">
-                      USDC
-                    </div>
-                  </SelectItem>
-                  <SelectItem value={TokenType.usdt}>
-                    <div className="flex items-center gap-2">
-                      USDT
-                    </div>
-                  </SelectItem>
+                  <SelectItem value={TokenType.usdc}>USDC</SelectItem>
+                  <SelectItem value={TokenType.usdt}>USDT</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-
             <div className="space-y-2">
-              <Label htmlFor="amount">Bahis Miktarı</Label>
-              <Input
-                id="amount"
-                type="number"
-                step="1"
-                min="1"
-                placeholder="Örn: 100"
+              <Label>Miktar</Label>
+              <Input 
+                type="number" 
+                placeholder="100" 
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
               />
             </div>
           </div>
 
-          {/* Bakiye Bilgisi */}
-          <div className="rounded-lg border border-border bg-muted/50 p-3">
-            <p className="text-sm text-muted-foreground">
-              Mevcut Bakiye: <span className="font-semibold text-foreground">{availableBalance.toLocaleString()}</span> {tokenType === TokenType.usdc ? 'USDC' : 'USDT'}
-            </p>
+          {/* Süre */}
+          <div className="space-y-2">
+            <Label>Süre</Label>
+            <RadioGroup value={interval} onValueChange={(v) => setInterval(v as TimeInterval)} className="flex gap-4">
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value={TimeInterval.oneHour} id="1h" />
+                <Label htmlFor="1h">1 Saat</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value={TimeInterval.twentyFourHours} id="24h" />
+                <Label htmlFor="24h">24 Saat</Label>
+              </div>
+            </RadioGroup>
           </div>
 
-          <Button 
-            type="submit" 
-            className="w-full" 
-            disabled={createPrediction.isPending || isApproving}
-          >
-            {isApproving ? 'Onaylanıyor...' : createPrediction.isPending ? 'Oluşturuluyor...' : 'Tahmin Oluştur'}
+          <div className="p-3 bg-muted/50 rounded-lg text-sm">
+            Bakiye: <span className="font-bold">{availableBalance} {tokenType.toUpperCase()}</span>
+          </div>
+
+          <Button type="submit" className="w-full" disabled={isApproving || createPrediction.isPending}>
+            {(isApproving || createPrediction.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isApproving ? 'İşlem Yapılıyor...' : 'Tahmin Oluştur'}
           </Button>
         </form>
       </CardContent>
