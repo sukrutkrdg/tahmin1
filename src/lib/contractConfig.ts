@@ -18,6 +18,7 @@ export const CONTRACT_ADDRESSES = {
   },
 };
 
+
 export const RPC_URLS = {
   [BASE_MAINNET_CHAIN_ID]: 'https://mainnet.base.org',
   [BASE_TESTNET_CHAIN_ID]: 'https://sepolia.base.org',
