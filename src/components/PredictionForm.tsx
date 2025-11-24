@@ -9,10 +9,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Asset, PredictionDirection, TimeInterval, TokenType } from "@/types/prediction";
 import { useWallet } from '../hooks/useWallet';
-import { CONTRACT_ADDRESSES, BASE_TESTNET_CHAIN_ID } from '../lib/contractConfig';
 import { getEthereumProvider } from '@/lib/utils';
 import { toast } from 'sonner';
 import { ArrowUp, ArrowDown, Loader2 } from 'lucide-react';
+
+// --- GARANTİ ADRESLER (Base Sepolia) ---
+const PREDICTION_MARKET_ADDRESS = "0xC2F35E9414b7FcA3f1aCa9D980a8e1c2aF7805b7";
+const USDC_ADDRESS = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
+const USDT_ADDRESS = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"; // Test kolaylığı için aynı adres
+
+// Hedef Ağ: Base Sepolia
+const TARGET_CHAIN_ID = 84532;
+const TARGET_CHAIN_HEX = "0x14a34"; // 84532 in hex
 
 const ERC20_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
@@ -27,14 +35,48 @@ export default function PredictionForm() {
   const [interval, setInterval] = useState<TimeInterval>(TimeInterval.oneHour);
   const [tokenType, setTokenType] = useState<TokenType>(TokenType.usdc);
   const [amount, setAmount] = useState('');
+  
   const [isApproving, setIsApproving] = useState(false);
 
   const createPrediction = useCreatePrediction();
   const { data: balance } = useGetCallerBalance();
   const walletState = useWallet();
 
+  // AĞ DEĞİŞTİRME YARDIMCISI
+  const switchNetwork = async (provider: any) => {
+    try {
+      await provider.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: TARGET_CHAIN_HEX }],
+      });
+    } catch (switchError: any) {
+      // Ağ ekli değilse eklemeyi dene
+      if (switchError.code === 4902) {
+        try {
+          await provider.request({
+            method: 'wallet_addEthereumChain',
+            params: [
+              {
+                chainId: TARGET_CHAIN_HEX,
+                chainName: 'Base Sepolia',
+                nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+                rpcUrls: ['https://sepolia.base.org'],
+                blockExplorerUrls: ['https://sepolia.basescan.org'],
+              },
+            ],
+          });
+        } catch (addError) {
+          throw new Error("Ağ eklenemedi. Lütfen manuel olarak Base Sepolia ağına geçin.");
+        }
+      } else {
+        throw switchError;
+      }
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
     if (!walletState.isConnected || !walletState.address) {
       toast.error('Lütfen önce cüzdanınızı bağlayın');
       return;
@@ -49,28 +91,44 @@ export default function PredictionForm() {
       if (!ethereum) throw new Error("Cüzdan bulunamadı.");
 
       const provider = new ethers.BrowserProvider(ethereum);
-      const signer = await provider.getSigner();
+      
+      // 1. AĞ KONTROLÜ VE OTOMATİK GEÇİŞ
       const network = await provider.getNetwork();
-      const chainId = Number(network.chainId);
+      if (Number(network.chainId) !== TARGET_CHAIN_ID) {
+        console.log(`Yanlış ağ (${network.chainId}). Base Sepolia'ya geçiliyor...`);
+        toast.info("Doğru ağa geçiliyor, lütfen cüzdanı onaylayın...");
+        await switchNetwork(ethereum);
+        // Ağ değişiminin tamamlanması için kısa bir bekleme
+        await new Promise(r => setTimeout(r, 1000));
+      }
 
-      const addresses = CONTRACT_ADDRESSES[chainId as keyof typeof CONTRACT_ADDRESSES] || CONTRACT_ADDRESSES[BASE_TESTNET_CHAIN_ID];
-      const tokenAddress = tokenType === TokenType.usdc ? addresses.usdc : addresses.usdt;
-      const predictionMarketAddress = addresses.predictionMarket;
+      // Provider'ı yenile (Ağ değişince signer değişebilir)
+      const updatedProvider = new ethers.BrowserProvider(getEthereumProvider());
+      const signer = await updatedProvider.getSigner();
+
+      const tokenAddress = tokenType === TokenType.usdc ? USDC_ADDRESS : USDT_ADDRESS;
+      const predictionMarketAddress = PREDICTION_MARKET_ADDRESS;
+
+      console.log(`Token: ${tokenAddress}`);
+      console.log(`Market: ${predictionMarketAddress}`);
 
       const tokenContract = new Contract(tokenAddress, ERC20_ABI, signer);
       const decimals = 6; 
       const betAmountBigInt = ethers.parseUnits(amount, decimals);
       const thresholdBigInt = BigInt(Math.floor(Number(threshold) * 100));
 
+      // 2. Allowance Kontrolü
       const currentAllowance = await tokenContract.allowance(walletState.address, predictionMarketAddress);
-
+      
       if (currentAllowance < betAmountBigInt) {
-        toast.info("Harcama izni bekleniyor...");
+        toast.info("Harcama izni (Approve) bekleniyor...");
         const tx = await tokenContract.approve(predictionMarketAddress, betAmountBigInt);
+        console.log("Approve Hash:", tx.hash);
         await tx.wait();
-        toast.success("Onay verildi!");
+        toast.success("Onay Verildi!");
       }
 
+      // 3. Tahmin Oluşturma
       toast.info("İşlem onayı bekleniyor...");
       await createPrediction.mutateAsync({
         asset,
@@ -86,12 +144,23 @@ export default function PredictionForm() {
       setAmount('');
 
     } catch (error: any) {
-      console.error("Hata:", error);
-      toast.error(`Hata: ${error.reason || error.message || "İşlem başarısız"}`);
+      console.error("Hata Detayı:", error);
+      if (error.code === 'ACTION_REJECTED' || error.code === 4001) {
+        toast.error("İşlem reddedildi.");
+      } else if (error.code === 'BAD_DATA') {
+        toast.error("Ağ hatası: Lütfen Base Sepolia ağında olduğunuza emin olun.");
+      } else {
+        const msg = error.reason || error.message || "Bilinmeyen hata";
+        toast.error(`Hata: ${msg.slice(0, 60)}...`);
+      }
     } finally {
       setIsApproving(false);
     }
   };
+
+  const availableBalance = balance 
+    ? Number(tokenType === TokenType.usdc ? balance.usdc : balance.usdt)
+    : 0;
 
   return (
     <Card className="glass-card">
@@ -112,6 +181,7 @@ export default function PredictionForm() {
               </SelectContent>
             </Select>
           </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Eşik Fiyat ($)</Label>
@@ -128,6 +198,7 @@ export default function PredictionForm() {
               </Select>
             </div>
           </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Token</Label>
@@ -144,6 +215,7 @@ export default function PredictionForm() {
               <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="100" />
             </div>
           </div>
+
           <div className="space-y-2">
             <Label>Süre</Label>
             <RadioGroup value={interval} onValueChange={(v) => setInterval(v as TimeInterval)} className="flex gap-4">
@@ -151,6 +223,11 @@ export default function PredictionForm() {
               <div className="flex items-center space-x-2"><RadioGroupItem value={TimeInterval.twentyFourHours} id="24h" /><Label htmlFor="24h">24 Saat</Label></div>
             </RadioGroup>
           </div>
+
+          <div className="p-3 bg-muted/50 rounded-lg text-sm">
+            Bakiye: <span className="font-bold">{availableBalance} {tokenType.toUpperCase()}</span>
+          </div>
+
           <Button type="submit" className="w-full" disabled={isApproving || createPrediction.isPending}>
             {(isApproving || createPrediction.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {isApproving ? 'İşlem Yapılıyor...' : 'Tahmin Oluştur'}

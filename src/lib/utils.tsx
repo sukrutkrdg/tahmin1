@@ -5,11 +5,11 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-// ÇAKIŞMA ÖNLEYİCİ FONKSİYON
+// BU FONKSİYONU EKLEMEZSEN HATA ALIRSIN
 export function getEthereumProvider() {
   if (typeof window === 'undefined' || !window.ethereum) return null;
   
-  // Eğer birden fazla cüzdan varsa MetaMask'ı seç
+  // Birden fazla cüzdan varsa (Backpack, Phantom vb.) MetaMask'ı bul
   if (window.ethereum.providers && Array.isArray(window.ethereum.providers)) {
     const provider = window.ethereum.providers.find((p: any) => p.isMetaMask);
     if (provider) return provider;
